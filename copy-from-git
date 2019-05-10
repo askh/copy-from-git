@@ -1,0 +1,178 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'ostruct'
+require 'tmpdir'
+
+class Copier
+
+  attr_accessor :git_repository, :git_position, :git_src_directory, :add_directory
+  attr_accessor :destination, :rsync_delete
+
+  
+  def initialize(logger: nil)
+    @logger = logger
+  end
+
+  def normalize_file_name(name)
+    s = File::SEPARATOR
+    name.sub(/(?<=\A#{s}|[^#{s}])#{s}+\z/, '')
+  end
+
+  def directory_name_with_slash(name)
+    dir_name = name
+    if dir_name.length == 0
+      raise "Directory name can't be empty"
+    end
+    if dir_name[-1] != File::SEPARATOR &&
+       !(File::ALT_SEPARATOR && dir_name[-1] == File::ALT_SEPARATOR)
+      dir_name += File::SEPARATOR
+    end
+    return dir_name
+  end
+  
+  def copy()
+    Dir.mktmpdir do |tmp_dir_name|
+      @logger.debug("Temporary directory: #{tmp_dir_name}") if logger
+      # archive_dir_name = tmp_dir_name + File::SEPARATOR + 'archive'
+      # Dir.mkdir(archive_dir_name)
+      archive_file_name = tmp_dir_name + File::SEPARATOR + 'archive.tar'
+      work_copy_dir_name = tmp_dir_name + File::SEPARATOR + 'work_copy'
+      Dir.mkdir(work_copy_dir_name)
+      git_archive_options = ['--format=tar', '-o', archive_file_name, tree_ish]
+      git_archive_options << path if path
+      system('git', 'archive', *git_archive_options) || raise("git archive failed")
+      Dir.chdir(work_copy_dir_name) do |path|
+        before_rsync(work_copy_dir_name)
+        system('tar', 'xf', archive_file_name) || raise("can't extract archive")
+        if @add_directory
+          rsync_options = ['rsync', 'a']
+          # rsync_options << '--delete' if @rsync_delete
+          rsync_options << directory_name_with_slash(@add_directory)
+          rsync_options << work_copy_dir_name
+          @logger.debug('Execute: ' + rsync_options.join(' ')) if @logger
+          system(*rsync_options) || raise("Can't run rsync")
+        end
+        after_rsync(work_copy_dir_name)
+      end   
+    end
+  end
+
+ def before_rsync()
+   return true
+ end
+
+ def after_rsync()
+   return true
+ end
+
+ private
+
+end
+
+
+# def deploy_master()
+#   deployer = Deployer.new( )
+#   deployer.deploy()
+# end
+
+# def deploy_test()
+# 
+# end
+
+# STDIN.each_line do |line|
+#   old_value, new_value, ref_name = line.split(' ')
+#   if ref_name =~ /refs\/heads\/(?<branch>.+)/
+#     branch_name = Regexp.last_match(:branch)
+# 
+#     case branch
+#     when 'master'
+#       deploy_master()
+#     when 'test'
+#       deploy_test()
+#     end
+#     
+#   end  
+# end
+
+class CommandLineOptionParser
+
+  def self.parse(args)
+    options = OpenStruct.new
+
+    options.git_repository = nil
+    options.git_position = nil
+    options.git_src_directory = nil
+    options.add_directory = nil
+    options.destination = nil
+    options.rsync_delete = false
+
+    option_parser = OptionParser.new do |opts|
+      
+      opts.banner = "Usage: copy-from-git [options]"
+
+      opts.on('-h', '--help', 'Show this help') do
+        puts opts
+        exit
+      end
+      
+      opts.on('-rURI', '--git-repository=URL', 'git repository with source') do |git_repository|
+        options.git_repository = git_repository
+      end
+
+      opts.on('-pPOSITION', '--git-position=POSITION', 'A branch or commit name') do |git_position|
+        options.git_position = git_position
+      end
+
+      opts.on('-sDIRECTORY', '--source-directory=DIRECTORY', 'Copy content of the subdirectory in the git tree (relative of the root of the repository') do |git_source_directory|
+        options.git_src_directory = git_source_directory
+      end
+
+      opts.on('-aDIRECTORY', '--add-content=DIRECTORY', 'Add the content of the directory to the result tree') do |add_directory|
+        options.add_directories << add_directory
+      end
+
+      opts.on('-dDESTINATION', '--destination=DESTINATION', 'The destination directory/URI for rsync') do |rsync_destination|
+        options.rsync_destination = rsync_destination
+      end
+
+      opts.on('-D', '--rsync-delete', 'Run rsync with option "--delete"') do |rsync_delete|
+        options.rsync_delete = rsync_delete
+      end
+
+      opts.on('-v', '--verbose', 'Verbose mode') do |verbose|
+        options.verbose = verbose
+      end
+
+      opts.on('--debug', 'Debug mode') do |debug|
+        options.debug = debug
+      end
+      
+    end
+
+    option_parser.parse!(args)
+
+    return options
+  end
+
+end
+
+logger = Logger.new(STDERR)
+logger.level = Logger::WARN
+
+options = CommandLineOptionParser.parse(ARGV)
+
+logger.level = Logger::INFO if options.verbose
+logger.level = Logger::DEBUG if options.debug
+
+copier = Copier.new(logger: logger)
+
+copier.git_repository = options.git_repository
+copier.git_position = options.git_position
+copier.git_source_directory = options.git_source_directory
+copier.rsync_destination = options.rsync_destination
+copier.rsync_delete =  options.rsync_delete
+
+copier.copy
+
+
