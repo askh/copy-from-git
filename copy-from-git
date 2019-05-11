@@ -35,8 +35,6 @@ class Copier
   def copy()
     Dir.mktmpdir do |tmp_dir_name|
       @logger.debug("Temporary directory: #{tmp_dir_name}") if @logger
-      # archive_dir_name = tmp_dir_name + File::SEPARATOR + 'archive'
-      # Dir.mkdir(archive_dir_name)
       archive_file_name = tmp_dir_name + File::SEPARATOR + 'archive.tar'
       work_copy_dir_name = tmp_dir_name + File::SEPARATOR + 'work_copy'
       Dir.mkdir(work_copy_dir_name)
@@ -49,27 +47,25 @@ class Copier
       git_archive_with_options << @git_position
       git_archive_with_options << @git_source_directory if @git_source_directory
       @logger.debug("Ececute " + git_archive_with_options.join(' ')) if @logger
-      system(*git_archive_with_options) || raise("git archive failed")
+      system(*git_archive_with_options) || raise("git archive failed.")
       Dir.chdir(work_copy_dir_name) do |path|
-        before_rsync(work_copy_dir_name)
-        system('tar', 'xf', archive_file_name) || raise("can't extract archive")
-        if @add_directory
-          rsync_with_options_work_dir = ['rsync', '-a']
-          rsync_with_options_work_dir << directory_name_with_slash(@add_directory)
-          rsync_with_options_work_dir << work_copy_dir_name
-          @logger.debug('Execute: ' + rsync_with_options_work_dir.join(' ') + '...') if @logger
-          system(*rsync_with_options_work_dir) || raise("Can't run rsync for creating work copy.")
-        end
+        system('tar', 'xf', archive_file_name) || raise("Can't extract archive.")
       end
+      if @add_directory
+        rsync_with_options_work_dir = ['rsync', '-a']
+        rsync_with_options_work_dir << directory_name_with_slash(@add_directory)
+        rsync_with_options_work_dir << work_copy_dir_name
+        @logger.debug('Execute: ' + rsync_with_options_work_dir.join(' ') + '...') if @logger
+        system(*rsync_with_options_work_dir) || raise("Can't run rsync for creating work copy.")
+      end
+      before_rsync(work_copy_dir_name)
       rsync_with_options_install = ['rsync', '-a']
       rsync_with_options_install << '--delete' if @rsync_delete
       rsync_with_options_install << directory_name_with_slash(work_copy_dir_name)
       rsync_with_options_install << @destination
       @logger.debug('Execute: ' + rsync_with_options_install.join(' ') + '...') if @logger
       system(*rsync_with_options_install) || raise("Can't run rsync for install.")
-      Dir.chdir(work_copy_dir_name) do |path|
-        after_rsync(work_copy_dir_name)
-      end   
+      after_rsync(work_copy_dir_name)
     end
   end
 
@@ -85,30 +81,6 @@ class Copier
 
 end
 
-
-# def deploy_master()
-#   deployer = Deployer.new( )
-#   deployer.deploy()
-# end
-
-# def deploy_test()
-# 
-# end
-
-# STDIN.each_line do |line|
-#   old_value, new_value, ref_name = line.split(' ')
-#   if ref_name =~ /refs\/heads\/(?<branch>.+)/
-#     branch_name = Regexp.last_match(:branch)
-# 
-#     case branch
-#     when 'master'
-#       deploy_master()
-#     when 'test'
-#       deploy_test()
-#     end
-#     
-#   end  
-# end
 
 class CommandLineOptionParser
 
@@ -144,14 +116,14 @@ class CommandLineOptionParser
       end
 
       opts.on('-aDIRECTORY', '--add-content=DIRECTORY', 'Add the content of the directory to the result tree') do |add_directory|
-        options.add_directories << add_directory
+        options.add_directory = add_directory
       end
 
       opts.on('-dDESTINATION', '--destination=DESTINATION', 'The destination directory/URI for rsync') do |destination|
         options.destination = destination
       end
 
-      opts.on('-D', '--rsync-delete', 'Run rsync with option "--delete"') do |rsync_delete|
+      opts.on('-D', '--rsync-delete', 'Run rsync with option "--delete" (DANGEROUS! Removes old content from the target directory!)') do |rsync_delete|
         options.rsync_delete = rsync_delete
       end
 
@@ -166,6 +138,16 @@ class CommandLineOptionParser
     end
 
     option_parser.parse!(args)
+
+    if !options.git_position
+      puts "Set the branch or commit name with the option --git-position."
+      exit
+    end
+
+    if !options.destination
+      puts "Set the destination for rsync with the option --destination."
+      exit
+    end    
 
     return options
   end
@@ -186,6 +168,7 @@ copier.git_repository = options.git_repository
 copier.git_position = options.git_position
 copier.git_source_directory = options.git_source_directory
 copier.destination = options.destination
+copier.add_directory = options.add_directory
 copier.rsync_delete =  options.rsync_delete
 
 copier.copy
