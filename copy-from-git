@@ -9,13 +9,12 @@ class Copier
 
   attr_accessor :git_repository, :git_position, :git_source_directory, :add_directory
   attr_accessor :destination, :rsync_delete
-
   
   def initialize(logger: nil)
     @logger = logger
   end
 
-  def normalize_file_name(name)
+  def directory_name_without_slash(name)
     s = File::SEPARATOR
     name.sub(/(?<=\A#{s}|[^#{s}])#{s}+\z/, '')
   end
@@ -51,17 +50,20 @@ class Copier
       Dir.chdir(work_copy_dir_name) do |path|
         system('tar', 'xf', archive_file_name) || raise("Can't extract archive.")
       end
+      content_dir_name = @git_source_directory ?
+                           File.join(work_copy_dir_name, @git_source_directory) :
+                           work_copy_dir_name
       if @add_directory
-        rsync_with_options_work_dir = ['rsync', '-a']
-        rsync_with_options_work_dir << directory_name_with_slash(@add_directory)
-        rsync_with_options_work_dir << work_copy_dir_name
-        @logger.debug('Execute: ' + rsync_with_options_work_dir.join(' ') + '...') if @logger
-        system(*rsync_with_options_work_dir) || raise("Can't run rsync for creating work copy.")
+        rsync_with_options_content_dir = ['rsync', '-a']
+        rsync_with_options_content_dir << directory_name_with_slash(@add_directory)
+        rsync_with_options_content_dir << content_dir_name
+        @logger.debug('Execute: ' + rsync_with_options_content_dir.join(' ') + '...') if @logger
+        system(*rsync_with_options_content_dir) || raise("Can't run rsync to fill content directory.")
       end
-      before_rsync(work_copy_dir_name)
+      before_rsync(content_dir_name)
       rsync_with_options_install = ['rsync', '-a']
       rsync_with_options_install << '--delete' if @rsync_delete
-      rsync_with_options_install << directory_name_with_slash(work_copy_dir_name)
+      rsync_with_options_install << directory_name_with_slash(content_dir_name)
       rsync_with_options_install << @destination
       @logger.debug('Execute: ' + rsync_with_options_install.join(' ') + '...') if @logger
       system(*rsync_with_options_install) || raise("Can't run rsync for install.")
@@ -77,10 +79,7 @@ class Copier
    return true
  end
 
- private
-
 end
-
 
 class CommandLineOptionParser
 
@@ -111,7 +110,7 @@ class CommandLineOptionParser
         options.git_position = git_position
       end
 
-      opts.on('-sDIRECTORY', '--source-directory=DIRECTORY', 'Copy content of the subdirectory in the git tree (relative of the root of the repository') do |git_source_directory|
+      opts.on('-sDIRECTORY', '--source-directory=DIRECTORY', 'Copy to destination only the content of the subdirectory in the git tree (relative of the root of the repository') do |git_source_directory|
         options.git_source_directory = git_source_directory
       end
 
@@ -172,5 +171,4 @@ copier.add_directory = options.add_directory
 copier.rsync_delete =  options.rsync_delete
 
 copier.copy
-
 
