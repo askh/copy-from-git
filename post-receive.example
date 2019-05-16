@@ -1,0 +1,13 @@
+#!/bin/bash
+
+while read old_value new_value ref_name
+do
+  if [[ $ref_name == refs/heads/* ]]
+  then
+    branch_name=${ref_name#refs/heads/}
+    case $branch_name in
+      (testing) copy-from-git -p"$branch_name" -s src -d tester@example.com:/opt/testing/project --rsync-delete --debug
+      ;;
+    esac
+  fi
+done

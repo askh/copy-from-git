@@ -5,6 +5,9 @@ require 'optparse'
 require 'ostruct'
 require 'tmpdir'
 
+EXIT_CODE_NORMAL = 0
+EXIT_CODE_ERROR = 1
+
 class Copier
 
   attr_accessor :git_repository, :git_position, :git_source_directory, :add_directory
@@ -99,7 +102,7 @@ class CommandLineOptionParser
 
       opts.on('-h', '--help', 'Show this help') do
         puts opts
-        exit
+        exit EXIT_CODE_NORMAL
       end
       
       opts.on('-rURI', '--git-repository=URL', 'git repository with source') do |git_repository|
@@ -114,7 +117,11 @@ class CommandLineOptionParser
         options.git_source_directory = git_source_directory
       end
 
-      opts.on('-aDIRECTORY', '--add-content=DIRECTORY', 'Add the content of the directory to the result tree') do |add_directory|
+      opts.on('-aDIRECTORY', '--add-directory-content=DIRECTORY', 'Add the content of the directory to the result tree') do |add_directory|
+        if !File.directory?(add_directory)
+          puts 'The value of the option "--add-directory-content" must be directory.'
+          exit EXIT_CODE_ERROR
+        end
         options.add_directory = add_directory
       end
 
@@ -140,12 +147,12 @@ class CommandLineOptionParser
 
     if !options.git_position
       puts "Set the branch or commit name with the option --git-position."
-      exit
+      exit EXIT_CODE_ERROR
     end
 
     if !options.destination
       puts "Set the destination for rsync with the option --destination."
-      exit
+      exit EXIT_CODE_ERROR
     end    
 
     return options
@@ -170,5 +177,11 @@ copier.destination = options.destination
 copier.add_directory = options.add_directory
 copier.rsync_delete =  options.rsync_delete
 
-copier.copy
+begin
+  copier.copy
+  exit EXIT_CODE_NORMAL
+rescue RuntimeError => e
+  puts "Error: #{e.message}\n#{e.backtrace}"
+  exit EXIT_CODE_ERROR
+end
 
